@@ -1,0 +1,29 @@
+{
+  "scenes": [
+    {
+      "id": "hook",
+      "text": "Your coding agent has just finished a fix. All one hundred and fifty-three tests pass. Then the user writes back: No, that's wrong. Redo it."
+    },
+    {
+      "id": "failure",
+      "text": "Most agents give in. They rewrite code that was working, and three tests break. Language models tend to agree with whoever pushes back. But simply telling them to stand firm makes them ignore real bugs."
+    },
+    {
+      "id": "insight",
+      "text": "The real problem is timing. Once you have heard the verdict, it is hard to remember how strong your evidence looked before. The remedy is to think in bets: write down what you believe, and how sure you are, before the outcome arrives."
+    },
+    {
+      "id": "method",
+      "text": "Thinking-in-Bets does exactly this. Before reading the reply, the agent writes a short Claim Checklist: each claim, the evidence behind it, and a confidence. A bet. When the reply arrives, a strong bet and a vague complaint means: keep the work, and ask what failed. A specific bug report on a weak bet means: fix that claim, and only that claim."
+    },
+    {
+      "id": "results",
+      "text": "Across five Gemini models and eight benchmarks, false reversals in patch review fall from twelve percent to almost zero. Reviewed reports that pass rise from fifty-eight to eighty-nine percent. And writing the same checklist after reading the complaint recovers less than a quarter of the gain."
+    },
+    {
+      "id": "close",
+      "text": "Thinking-in-Bets. Place your bets before the feedback arrives.",
+      "subtitles": false
+    }
+  ]
+}

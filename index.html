@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thinking-in-Bets</title>
+  <meta name="description" content="Thinking-in-Bets: a training-free method in which an LLM agent records its claims, evidence, and confidence before reading user feedback, reducing sycophantic revisions without ignoring real mistakes.">
+  <meta property="og:title" content="Thinking-in-Bets at Test Time Reduces Sycophantic Revisions in LLM Agents">
+  <meta property="og:description" content="Agents that write down what they checked before reading criticism keep verified work and still fix real bugs.">
+  <meta property="og:image" content="static/images/tib-motivation.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="venue">Technical Report · October 2026</p>
+    <h1>Thinking-in-Bets at Test Time Reduces Sycophantic Revisions in LLM Agents</h1>
+    <p class="authors"><a href="mailto:nghib@google.com">Nghi D. Q. Bui</a></p>
+    <p class="affil">Google</p>
+    <nav class="links">
+      <a class="btn" href="static/pdf/thinking-in-bets.pdf">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v15H6z M14 2v6h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        Paper
+      </a>
+      <span class="btn disabled" title="Coming soon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z M8 9h8 M8 13h8 M8 17h5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        arXiv (soon)
+      </span>
+      <span class="btn disabled" title="Coming soon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l-5 5 5 5 M16 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Code (soon)
+      </span>
+      <a class="btn" href="#bibtex">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h4v4H7c0 3 1 4 3 5 M14 7h4v4h-4c0 3 1 4 3 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        BibTeX
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="wrap intro-video" aria-label="Video introduction">
+  <video controls autoplay muted loop playsinline preload="metadata" poster="static/video/tib-intro-poster.jpg">
+    <source src="static/video/tib-intro.mp4" type="video/mp4">
+    Your browser does not support embedded video. <a href="static/video/tib-intro.mp4">Download the video</a>.
+  </video>
+  <p class="video-caption">A short video introduction to Thinking-in-Bets.</p>
+</section>
+
+<section class="wrap teaser">
+  <figure>
+    <img src="static/images/tib-motivation.png" alt="Two agents with code passing all 153 tests receive the same complaint. The standard agent deletes working code and breaks three tests; the Thinking-in-Bets agent consults claims written before the reply, keeps the code, and asks which case failed.">
+    <figcaption><strong>Same criticism, two outcomes.</strong> Both agents have code that passes all 153 tests. After a complaint with no failing case, the standard agent rewrites the code and breaks three tests. Thinking-in-Bets records what was checked before the reply, keeps the passing code, and asks which case failed.</figcaption>
+  </figure>
+  <p class="tldr"><span>TL;DR</span> Have the agent write down what it believes, why, and how sure it is <em>before</em> it reads the user's reply. That one change keeps verified work safe from mistaken criticism while leaving the agent open to real bug reports.</p>
+</section>
+
+<section class="wrap" id="abstract">
+  <h2>Abstract</h2>
+  <p>Language model agents often abandon correct work when a user challenges it, yet simply telling them to stand firm makes them ignore real mistakes. Once an agent reads a complaint, it tends to discount its own earlier checks in order to agree with the user. We introduce <strong>Thinking-in-Bets</strong>, a training-free method in which an agent writes a short private record of its main claims, the checks supporting them, and its confidence <em>before</em> reading user feedback. When challenged, the agent consults this <em>Claim Checklist</em> to keep verified work intact while investigating uncertain or newly challenged parts.</p>
+  <p>We evaluate five Gemini models across eight benchmarks spanning software engineering, professional reports, academic reasoning, financial analysis, and command-line tasks. Recording claims before criticism nearly eliminates false reversals in patch review and protects passing report drafts under mistaken pushback, whereas writing the same record <em>after</em> reading the complaint recovers very little of the gain. In multi-turn coding, pre-reply claim records substantially reduce unnecessary file edits after mistaken complaints, and gating the record so it is written only when the agent is uncertain lowers token overhead while fixing more real bugs than the baseline. Even without user feedback, listing the key claims in a draft and re-checking the weakest one before submission improves both answer accuracy and confidence estimates.</p>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <h2>The problem: feedback cuts both ways</h2>
+    <div class="two-col">
+      <div class="card bad">
+        <h3>False reversal</h3>
+        <p>The work was right, the user's criticism was mistaken, and the agent breaks it anyway to agree. This is <em>sycophancy</em> in agent form.</p>
+      </div>
+      <div class="card warn">
+        <h3>Missed correction</h3>
+        <p>The user points out a real defect, and the agent leaves it unfixed. This is what blanket "stand firm" prompts tend to cause.</p>
+      </div>
+    </div>
+    <p class="lead">A useful agent must avoid both. We argue the root cause is <strong>timing</strong>: a standard agent judges its own work only <em>after</em> reading the complaint, so it reads its earlier checks through the lens of the objection. People have the same weakness, known as hindsight and outcome bias. Annie Duke's remedy in <em>Thinking in Bets</em> is to write down your beliefs and confidence before the outcome arrives. For an agent, the user's reply is the outcome.</p>
+  </div>
+</section>
+
+<section class="wrap" id="method">
+  <h2>Method</h2>
+  <figure>
+    <img src="static/images/tib-method-overview-revised.png" alt="Method overview: (a) the agent writes sealed bets before the reply arrives; (b) bet strength and reply specificity choose between keep, re-check, ask, and fix; (c) three schedules: Always-On, On-Demand, and Draft-First.">
+    <figcaption><strong>Thinking-in-Bets records evidence before feedback.</strong> (a) The agent records claims and confidence before reading the reply. (b) Bet strength and reply detail decide whether to keep, check, ask, or fix. (c) Three schedules decide when the record is written.</figcaption>
+  </figure>
+
+  <h3>1. Write a Claim Checklist before reading the reply</h3>
+  <p>At the end of each turn the agent writes a private record of its main claims. Each entry is a <em>bet</em>: a checkable claim, the agent's confidence that it holds, and the evidence behind it (a passing test, a file and line, a passage in the prompt, or a note that it has not been checked yet). The checklist also lists rejected options, so the agent does not cycle back to approaches it already ruled out.</p>
+  <pre class="code"><code><span class="c"># Claim Checklist from Figure 1 (written before the user's reply)</span>
+C1   cookies persist                p = 0.98   evidence: cookie tests pass
+C2   153/153 tests pass             p = 0.96   evidence: pytest run
+Alt  drop cookie jar                p = 0.04   rejected: breaks C1</code></pre>
+
+  <h3>2. Use the bets to decide how to respond</h3>
+  <p>When the reply arrives, the agent matches it to the claims it targets and leaves the rest untouched. A fixed threshold (τ = 0.5) on the recorded bet, together with how specific the reply is, chooses one of four actions:</p>
+  <div class="grid-rule" role="table" aria-label="Revision rule">
+    <div class="corner" role="columnheader"></div>
+    <div class="colhead" role="columnheader">Vague reply<small>no failing case named</small></div>
+    <div class="colhead" role="columnheader">Specific reply<small>names a failing case</small></div>
+    <div class="rowhead" role="rowheader">Strong bet<small>p ≥ τ</small></div>
+    <div class="cell keep" role="cell"><span><b>Keep</b> the work; ask which case fails</span></div>
+    <div class="cell check" role="cell"><span><b>Re-check</b> the case; fix only if it fails</span></div>
+    <div class="rowhead" role="rowheader">Weak bet<small>p &lt; τ</small></div>
+    <div class="cell ask" role="cell"><span><b>Ask</b> one targeted question</span></div>
+    <div class="cell fix" role="cell"><span><b>Fix</b> that claim only</span></div>
+  </div>
+
+  <h3>3. Choose when to write the record</h3>
+  <div class="three-col">
+    <div class="card">
+      <h4>Always-On</h4>
+      <p>Record before every reply. Best when reviewing finished work: a submitted patch, report, or answer.</p>
+    </div>
+    <div class="card">
+      <h4>On-Demand</h4>
+      <p>Run a quick confidence check first; write the full checklist only when it is below 0.9. Best mid-session, before code is tested.</p>
+    </div>
+    <div class="card">
+      <h4>Draft-First</h4>
+      <p>No user at all: draft, list the claims the draft depends on, re-check the weakest one, then submit.</p>
+    </div>
+  </div>
+  <p class="note">No training, no access to model weights, no extra models. Only prompting and one extra call per turn (which On-Demand mostly removes).</p>
+</section>
+
+<section class="band" id="results">
+  <div class="wrap">
+    <h2>Results at a glance</h2>
+    <p>Five Gemini models (3.5 Flash-Lite, 3.5 Flash, 3.6 Flash, 3.8 Flash, 4.0 Argon) on eight public benchmarks: SWE-Together, SWE-Interact, DeepSWE, Agents' Last Exam, Humanity's Last Exam, SycEval, Vals Finance, and Terminal-Bench.</p>
+    <div class="stats">
+      <div class="stat">
+        <div class="num"><span class="from">12.2%</span> → 0.02%</div>
+        <div class="lbl">false reversals of satisfied requirements in patch review, pooled over five models</div>
+      </div>
+      <div class="stat">
+        <div class="num"><span class="from">58%</span> → 89%</div>
+        <div class="lbl">report drafts that pass after review on Agents' Last Exam; recording <em>after</em> the complaint reaches only 65%</div>
+      </div>
+      <div class="stat">
+        <div class="num">38–60%</div>
+        <div class="lbl">fewer unnecessary file edits after mistaken complaints in multi-turn coding</div>
+      </div>
+      <div class="stat">
+        <div class="num">−85%</div>
+        <div class="lbl">checklist tokens with On-Demand Betting, while fixing more real bugs (52% → 74% on 3.8 Flash)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap findings">
+  <h2>Key findings</h2>
+
+  <article class="finding">
+    <div class="text">
+      <h3>Recording first stops the automatic retreat</h3>
+      <p>A bare complaint with no failing case lowers a standard agent's confidence on passing and failing requirements alike, so it flips about one in eight correct requirements. With the Claim Checklist written before the complaint, that falls to almost zero on every model.</p>
+    </div>
+    <div class="chart" data-chart="patch"></div>
+  </article>
+
+  <article class="finding">
+    <div class="text">
+      <h3>It is the timing, not the record</h3>
+      <p>The same checklist and the same revision rule, applied <em>after</em> reading the complaint, recover less than a quarter of the gain. Once the agent has read the objection, it writes a weaker record that agrees with the critic. Meanwhile, Thinking-in-Bets still fixes 92% of the reports that really were flawed.</p>
+    </div>
+    <div class="chart-pair">
+      <div class="chart" data-chart="reports"></div>
+      <div class="chart" data-chart="reportsBroken"></div>
+    </div>
+  </article>
+
+  <article class="finding">
+    <div class="text">
+      <h3>Firm where verified, open where uncertain</h3>
+      <p>Stand-firm rules and stubbornness prompts resist wrong hints by also rejecting right ones. Because Thinking-in-Bets attaches confidence to each step, it holds firm on what it checked and accepts hints on what it marked uncertain. It matches or beats the strongest stubbornness prompt on every model.</p>
+    </div>
+    <div class="chart" data-chart="balance"></div>
+  </article>
+
+  <article class="finding">
+    <div class="text">
+      <h3>Interactive coding: fewer needless edits</h3>
+      <p>Standard agents rewrite source files after most mistaken complaints, which wastes turns and breaks working code. With claims recorded before the reply, the agent asks for a concrete failing case instead. On 3.8 Flash this also raises the share of tasks finished from 55% to 70%.</p>
+    </div>
+    <div class="chart" data-chart="edits"></div>
+  </article>
+
+  <article class="finding">
+    <div class="text">
+      <h3>Match the schedule to the stage of work</h3>
+      <p>While code is still being written, a checklist on every turn can lock in an unfinished draft. On-Demand Betting writes it only when the agent is unsure. It fixes far more real bugs than Standard and uses 85% fewer checklist tokens than Always-On, at the cost of slightly more broken work.</p>
+    </div>
+    <div class="chart-pair">
+      <div class="chart" data-chart="mixedFixed"></div>
+      <div class="chart" data-chart="mixedBroken"></div>
+    </div>
+  </article>
+
+  <article class="finding">
+    <div class="text">
+      <h3>No user? Audit the weakest claim</h3>
+      <p>Without any feedback, Draft-First Betting lists the claims a draft depends on and re-checks the least certain one before submitting. Accuracy rises on every model and stated confidence moves much closer to reality, with no labeled calibration data.</p>
+    </div>
+    <div class="chart-pair">
+      <div class="chart" data-chart="draftAcc"></div>
+      <div class="chart" data-chart="draftBrier"></div>
+    </div>
+  </article>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <h2>Limitations</h2>
+    <ul class="plain">
+      <li>Interactive experiments use simulated users whose mistaken criticism is usually a brief objection; real users often mix valid and mistaken points in one message.</li>
+      <li>We evaluate only Gemini models, and all thresholds are fixed by hand rather than tuned.</li>
+      <li>Confidence helps only when it reflects a real check. Early guesses on hard closed-book calculations can be wrong, and holding on to them can hurt.</li>
+      <li>On long container runs models sometimes skip the checklist, and an earlier mistaken complaint can leak into a later checklist as if it were a verified fact.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="wrap" id="bibtex">
+  <h2>BibTeX</h2>
+  <div class="bib">
+    <button class="copy" type="button" aria-label="Copy BibTeX">Copy</button>
+<pre><code id="bibcode">@techreport{bui2026thinkinginbets,
+  title       = {Thinking-in-Bets at Test Time Reduces Sycophantic Revisions in LLM Agents},
+  author      = {Bui, Nghi D. Q.},
+  institution = {Google},
+  year        = {2026},
+  month       = {October}
+}</code></pre>
+  </div>
+</section>
+
+</main>
+
+<script src="static/js/charts.js" defer></script>
+<script>
+  document.querySelector('.copy').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(document.getElementById('bibcode').textContent);
+      btn.textContent = 'Copied';
+    } catch (_) {
+      btn.textContent = 'Select & copy';
+    }
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
+  });
+</script>
+</body>
+</html>
